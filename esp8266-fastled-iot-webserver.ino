@@ -142,8 +142,6 @@ extern "C" {
 //---------------------------------------------------------------------------------------------------------//
 // Feature Configuration: Enabled by removing the "//" in front of the define statements
 //---------------------------------------------------------------------------------------------------------//
-    #define ACCESS_POINT_MODE                 // the esp8266 will create a wifi-access point instead of connecting to one, credentials must be in Secrets.h
-
     //#define ENABLE_OTA_SUPPORT                // requires ArduinoOTA - library, not working on esp's with 1MB memory (esp-01, Wemos D1 lite ...)
         //#define OTA_PASSWORD "passwd123"      //  password that is required to update the esp's firmware wireless
 
@@ -290,8 +288,8 @@ if you have connected the ring first it should look like this: const int twpOffs
         #define MQTT_DEVICE_NAME "Animated Logo"
     #endif
     #define MQTT_UNIQUE_IDENTIFIER WiFi.macAddress()                    // A Unique Identifier for the device in Homeassistant (MAC Address used by default)
-    #define MQTT_MAX_PACKET_SIZE 512
-    #define MQTT_MAX_TRANSFER_SIZE 512
+    #define MQTT_MAX_PACKET_SIZE 1024
+    #define MQTT_MAX_TRANSFER_SIZE 1024
 
     #include <PubSubClient.h>                                           // Include the MQTT Library, must be installed via the library manager
     #include <ArduinoJson.h> 
@@ -372,35 +370,8 @@ if you have connected the ring first it should look like this: const int twpOffs
     uint8_t incomingPacket[PACKET_LENGTH + 1];
 #endif
 
-// define EEPROM settings
-//  https://www.kriwanek.de/index.php/de/homeautomation/esp8266/364-eeprom-für-parameter-verwenden
-
-typedef struct {
-  uint8_t brightness;
-  uint8_t currentPatternIndex;
-  uint8_t red;
-  uint8_t green;
-  uint8_t blue;
-  uint8_t power;
-  uint8_t autoplay;
-  uint8_t autoplayDuration;
-  uint8_t currentPaletteIndex;
-  uint8_t speed;
-  char hostname[33];
-  uint8_t MQTTEnabled;
-  char MQTTHost[65];
-  uint16_t MQTTPort;
-  char MQTTUser[33];
-  char MQTTPass[65];
-  char MQTTTopic[65];
-  char MQTTDeviceName[33];
-} configData_t;
-
-configData_t cfg;
-configData_t default_cfg;
-
-// set to true if config has changed
-bool save_config = false;
+// include config management
+#include "config.h"
 
 ESP8266WebServer webServer(80);
 
@@ -489,6 +460,12 @@ typedef Pattern PatternList[];
 typedef struct {
     Pattern pattern;
     String name;
+    // these settings decide if certain controls/fields are displayed in the web interface
+    bool show_palette;
+    bool show_speed;
+    bool show_color_picker;
+    bool show_cooling_sparking;
+    bool show_twinkle;
 } PatternAndName;
 typedef PatternAndName PatternAndNameList[];
 
@@ -500,123 +477,123 @@ typedef PatternAndName PatternAndNameList[];
 PatternAndNameList patterns = {
 
     // Time patterns
-  #if DEVICE_TYPE == 2                
-    { displayTimeStatic,      "Time" },
-    { displayTimeColorful,     "Time Colorful" },
-    { displayTimeGradient,     "Time Gradient" },
-    { displayTimeGradientLarge,     "Time Gradient large" },
-    { displayTimeRainbow,     "Time Rainbow" },
-  #endif
-
-#if DEVICE_TYPE == 3
-    { pride_Waves,            "Pride Waves" },
-    { pride_Rings,            "Pride Rings" },
-    { colorWaves_hori,        "Vertical Waves" },
-    { colorWaves_vert,        "Color Rings" },
-    { rainbow_vert,           "Vertical Rainbow" },
+#if DEVICE_TYPE == 2                                 // palet  speed  color  spark  twinkle
+    { displayTimeStatic,        "Time",                 true,  true,  true,  false, false},
+    { displayTimeColorful,      "Time Colorful",        true,  true,  true,  false, false},
+    { displayTimeGradient,      "Time Gradient",        true,  true,  true,  false, false},
+    { displayTimeGradientLarge, "Time Gradient large",  true,  true,  true,  false, false},
+    { displayTimeRainbow,       "Time Rainbow",         true,  true,  true,  false, false},
 #endif
 
-    // animation patterns
-    { pride,                  "Pride" },
-    { colorWaves,             "Color Waves" },
-    { rainbow,                "Horizontal Rainbow" },
-    { rainbowSolid,           "Solid Rainbow" },
-    { confetti,               "Confetti" },
-    { sinelon,                "Sinelon" },
-    { bpm,                    "Beat" },
-    { juggle,                 "Juggle" },
-    { fire,                   "Fire" },
-    { water,                  "Water" },
-    { strobe,                 "Strobe"},
-    { rainbow_strobe,         "Rainbow Strobe"},
-    { smooth_rainbow_strobe,  "Smooth Rainbow Strobe"},
+#if DEVICE_TYPE == 3                                 // palet  speed  color  spark  twinkle
+    { pride_Waves,            "Pride Waves",            true,  true,  true,  false, false},
+    { pride_Rings,            "Pride Rings",            true,  true,  true,  false, false},
+    { colorWaves_hori,        "Vertical Waves",         true,  true,  true,  false, false},
+    { colorWaves_vert,        "Color Rings",            true,  true,  true,  false, false},
+    { rainbow_vert,           "Vertical Rainbow",       true,  true,  true,  false, false},
+#endif
 
-    // DigitalJohnson patterns
-    { rainbowRoll,              "Rainbow Roll" },
-    { rainbowBeat,              "Rainbow Beat" },
-    { randomPaletteFades,              "Palette Fades" },
-    { rainbowChase,              "Rainbow Chase" },
-    { randomDots,              "Rainbow Dots" },
-    { randomFades,              "Rainbow Fades" },
-    { policeLights,              "Police Lights" },
-    { glitter,              "Glitter" },
-    { snowFlakes,              "Snow Flakes" },
-    { lightning,                "Lightning"},
+    // animation patterns                            // palet  speed  color  spark  twinkle
+    { pride,                  "Pride",                  false, false, false, false, false},
+    { colorWaves,             "Color Waves",            false, false, false, false, false},
+    { rainbow,                "Horizontal Rainbow",     false, false, false, false, false},
+    { rainbowSolid,           "Solid Rainbow",          false, false, false, false, false},
+    { confetti,               "Confetti",               false, false, false, false, false},
+    { sinelon,                "Sinelon",                true,  true,  false, false, false},
+    { bpm,                    "Beat",                   true,  true,  false, false, false},
+    { juggle,                 "Juggle",                 false, false, false, false, false},
+    { fire,                   "Fire",                   false, false, false, true,  false},
+    { water,                  "Water",                  false, false, false, true,  false},
+    { strobe,                 "Strobe",                 false, true,  true,  false, false},
+    { rainbow_strobe,         "Rainbow Strobe",         false, true,  false, false, false},
+    { smooth_rainbow_strobe,  "Smooth Rainbow Strobe",  false, true,  false, false, false},
 
-    // twinkle patterns
-    { rainbowTwinkles,        "Rainbow Twinkles" },
-    { snowTwinkles,           "Snow Twinkles" },
-    { cloudTwinkles,          "Cloud Twinkles" },
-    { incandescentTwinkles,   "Incandescent Twinkles" },
+    // DigitalJohnson patterns                       // palet  speed  color  spark  twinkle
+    { rainbowRoll,            "Rainbow Roll",           false, false, false, false, false},
+    { rainbowBeat,            "Rainbow Beat",           false, true,  false, false, false},
+    { randomPaletteFades,     "Palette Fades",          true,  false, false, false, false},
+    { rainbowChase,           "Rainbow Chase",          false, false, false, false, false},
+    { randomDots,             "Rainbow Dots",           false, false, false, false, false},
+    { randomFades,            "Rainbow Fades",          false, false, false, false, false},
+    { policeLights,           "Police Lights",          false, false, false, false, false},
+    { glitter,                "Glitter",                false, true,  false, false, false},
+    { snowFlakes,             "Snow Flakes",            false, false, false, false, false},
+    { lightning,              "Lightning",              false, false, false, false, false},
 
-    // TwinkleFOX patterns
-    { retroC9Twinkles,        "Retro C9 Twinkles" },
-    { redWhiteTwinkles,       "Red & White Twinkles" },
-    { blueWhiteTwinkles,      "Blue & White Twinkles" },
-    { redGreenWhiteTwinkles,  "Red, Green & White Twinkles" },
-    { fairyLightTwinkles,     "Fairy Light Twinkles" },
-    { snow2Twinkles,          "Snow 2 Twinkles" },
-    { hollyTwinkles,          "Holly Twinkles" },
-    { iceTwinkles,            "Ice Twinkles" },
-    { partyTwinkles,          "Party Twinkles" },
-    { forestTwinkles,         "Forest Twinkles" },
-    { lavaTwinkles,           "Lava Twinkles" },
-    { fireTwinkles,           "Fire Twinkles" },
-    { cloud2Twinkles,         "Cloud 2 Twinkles" },
-    { oceanTwinkles,          "Ocean Twinkles" },
+    // twinkle patterns                              // palet  speed  color  spark  twinkle
+    { rainbowTwinkles,        "Rainbow Twinkles",       false, false, false, false, false},
+    { snowTwinkles,           "Snow Twinkles",          false, false, false, false, false},
+    { cloudTwinkles,          "Cloud Twinkles",         false, false, false, false, false},
+    { incandescentTwinkles,   "Incandescent Twinkles",  false, false, false, false, false},
+
+    // TwinkleFOX patterns                                 // palet  speed  color  spark  twinkle
+    { retroC9Twinkles,        "Retro C9 Twinkles",            false, false, false, false, true},
+    { redWhiteTwinkles,       "Red & White Twinkles",         false, false, false, false, true},
+    { blueWhiteTwinkles,      "Blue & White Twinkles",        false, false, false, false, true},
+    { redGreenWhiteTwinkles,  "Red, Green & White Twinkles",  false, false, false, false, true},
+    { fairyLightTwinkles,     "Fairy Light Twinkles",         false, false, false, false, true},
+    { snow2Twinkles,          "Snow 2 Twinkles",              false, false, false, false, true},
+    { hollyTwinkles,          "Holly Twinkles",               false, false, false, false, true},
+    { iceTwinkles,            "Ice Twinkles",                 false, false, false, false, true},
+    { partyTwinkles,          "Party Twinkles",               false, false, false, false, true},
+    { forestTwinkles,         "Forest Twinkles",              false, false, false, false, true},
+    { lavaTwinkles,           "Lava Twinkles",                false, false, false, false, true},
+    { fireTwinkles,           "Fire Twinkles",                false, false, false, false, true},
+    { cloud2Twinkles,         "Cloud 2 Twinkles",             false, false, false, false, true},
+    { oceanTwinkles,          "Ocean Twinkles",               false, false, false, false, true},
 
 #ifndef REMOVE_VISUALIZATION
     // Visualization Patterns
-#if DEVICE_TYPE == 1                // Matrix
-    { RainbowVisualizer,                "Rainbow Visualization"},
-    { SingleColorVisualizer,            "Single Color Visualization"},
-    { RainbowVisualizerDoubleSided,        "Rainbow Visualization Outside"},
-    { SingleColorVisualizerDoubleSided,    "Single Color Visualization Outside"},
+#if DEVICE_TYPE == 1                      // Matrix                          // palet  speed  color  spark  twinkle
+    { RainbowVisualizer,                  "Rainbow Visualization",              true,  true,  true,  false, false},
+    { SingleColorVisualizer,              "Single Color Visualization",         true,  true,  true,  false, false},
+    { RainbowVisualizerDoubleSided,       "Rainbow Visualization Outside",      true,  true,  true,  false, false},
+    { SingleColorVisualizerDoubleSided,   "Single Color Visualization Outside"  true,  true,  true,  false, false},
     
     #ifdef AddLogoVisualizers
-        #if LENGTH == 32 && HEIGHT == 8        // Logo Visualizers
-        { HbzVisualizerRainbow,                "Hbz Visualizer Spectrum"},
-        { HbzVisualizerWhite,                "Hbz Visualizer"},
+        #if LENGTH == 32 && HEIGHT == 8   // Logo Visualizers
+      { HbzVisualizerRainbow,             "Hbz Visualizer Spectrum",            true,  true,  true,  false, false},
+        { HbzVisualizerWhite,             "Hbz Visualizer",                     true,  true,  true,  false, false},
         #endif
     #endif
 #endif
 
-  #ifdef DEVICE_TYPE            // Generic Visualization Patterns
-    { vuMeterSolid,                        "Solid Volume Visualizer"},
-    { vuMeterStaticRainbow,                "Static Rainbow Volume Visualizer"},
-    { vuMeterRainbow,                    "Flowing Rainbow Volume Visualizer"},
-    { vuMeterTriColor,                    "Tri-Color Volume Visualizer"},
-    { RefreshingVisualizer,                "Wave Visualizer"},
-    { CentralVisualizer,                "Center Visualizer"},
-    { SolidColorDualTone,                "Solid-Color Pair Bullet Visualizer"},
-    { SolidColorComplementary,            "Solid-Color Complementary Bullet Visualizer"},
-    { BluePurpleBullets,                "Blue/Purple Bullet Visualizer"},
-    { BulletVisualizer,                    "Beat-Bullet Visualization"},
-    //{ RainbowPeaks,                     "Rainbow Peak Visualizer"},               // broken
-    { RainbowBassRings,                "Bass Ring Visualizer"},
-    { RainbowKickRings,                "Kick Ring Visualizer"},
-    //{ TrailingBulletsVisualizer,        "Trailing Bullet Visualization"},        // obsolete
-    //{ BrightnessVisualizer,                "Brightness Visualizer"},            // broken
-    { RainbowBandVisualizer,            "Rainbow Band Visualizer"},
-    { SingleColorBandVisualizer,        "Single Color Band Visualizer"},
+  #ifdef DEVICE_TYPE            // Generic Visualization Patterns                // palet  speed  color  spark  twinkle
+    { vuMeterSolid,                 "Solid Volume Visualizer",                      true,  true,  true,  false, false},
+    { vuMeterStaticRainbow,         "Static Rainbow Volume Visualizer",             true,  true,  true,  false, false},
+    { vuMeterRainbow,               "Flowing Rainbow Volume Visualizer",            true,  true,  true,  false, false},
+    { vuMeterTriColor,              "Tri-Color Volume Visualizer",                  true,  true,  true,  false, false},
+    { RefreshingVisualizer,         "Wave Visualizer",                              true,  true,  true,  false, false},
+    { CentralVisualizer,            "Center Visualizer",                            true,  true,  true,  false, false},
+    { SolidColorDualTone,           "Solid-Color Pair Bullet Visualizer",           true,  true,  true,  false, false},
+    { SolidColorComplementary,      "Solid-Color Complementary Bullet Visualizer",  true,  true,  true,  false, false},
+    { BluePurpleBullets,            "Blue/Purple Bullet Visualizer",                true,  true,  true,  false, false},
+    { BulletVisualizer,             "Beat-Bullet Visualization",                    true,  true,  true,  false, false},
+    //{ RainbowPeaks,                 "Rainbow Peak Visualizer"},                     // broken
+    { RainbowBassRings,             "Bass Ring Visualizer",                         true,  true,  true,  false, false},
+    { RainbowKickRings,             "Kick Ring Visualizer",                         true,  true,  true,  false, false},
+    //{ TrailingBulletsVisualizer,    "Trailing Bullet Visualization"},               // obsolete
+    //{ BrightnessVisualizer,         "Brightness Visualizer"},                       // broken
+    { RainbowBandVisualizer,        "Rainbow Band Visualizer",                      true,  true,  true,  false, false},
+    { SingleColorBandVisualizer,    "Single Color Band Visualizer",                 true,  true,  true,  false, false},
   #endif
 
 #endif
 
-#if DEVICE_TYPE == 4
-    { NanoleafWaves,                    "Nanoleaf Wave Visualizer" },
-    { NanoleafBand,                        "Nanoleaf Rainbow Band Visualizer" },
-    { NanoleafSingleBand,                "Nanoleaf Solid Color Band Visualizer" },
+#if DEVICE_TYPE == 4                                                       // palet  speed  color  spark  twinkle
+    { NanoleafWaves,                "Nanoleaf Wave Visualizer",               true,  true,  true,  false, false},
+    { NanoleafBand,                 "Nanoleaf Rainbow Band Visualizer",       true,  true,  true,  false, false},
+    { NanoleafSingleBand,           "Nanoleaf Solid Color Band Visualizer",   true,  true,  true,  false, false},
 #endif
 
-  #ifdef ENABLE_SERIAL_AMBILIGHT
-    { ambilight,                "⋆Serial Ambilight"},
+  #ifdef ENABLE_SERIAL_AMBILIGHT                       // palet  speed  color  spark  twinkle
+    { ambilight,                    "⋆Serial Ambilight",  true,  true,  true,  false, false},
   #endif // ENABLE_SERIAL_AMBILIGHT
 #ifdef SOUND_SENSOR_SUPPORT
-    { soundReactive,          "Sound Reactive" },
+    { soundReactive,                "Sound Reactive",     true,  true,  true,  false, false},
 #endif
 
-    { showSolidColor,                        "Solid Color" }
+    { showSolidColor,               "Solid Color",        false, false, true,  false, false}
 };
 
 
@@ -991,52 +968,41 @@ void setup() {
     addRebootPage(0);
 #endif
 
-    webServer.on("/all", HTTP_GET, []() {
+    webServer.on("/config.json", HTTP_GET, []() {
         String json = getFieldsJson(fields, fieldCount);
         json += ",{\"name\":\"lines\",\"label\":\"Amount of Lines for the Visualizer\",\"type\":\"String\",\"value\":";
         json += PACKET_LENGTH;
         json += "}";
-        json += ",{\"name\":\"hostname\",\"label\":\"Name of the device\",\"type\":\"Setting\",\"value\":\"";
-        json += cfg.hostname;
-        json += "\"}";
-        json += ",{\"name\":\"otaSupport\",\"label\":\"Device supports OTA\",\"type\":\"Setting\",\"value\":";
+        json += ",{\"name\":\"settings\",\"label\":\"Device settings\",\"type\":\"Setting\",\"value\":";
+        json += "{\"deviceHostname\":\"" + String(cfg.hostname) + "\"";
+        json += ",\"otaSupport\":";
 #ifdef ENABLE_OTA_SUPPORT
         json += "true";
 #else
         json += "false";
 #endif
-        json += "}";
-        json += ",{\"name\":\"alexaSupport\",\"label\":\"Device supports Alexa\",\"type\":\"Setting\",\"value\":";
+        json += ", \"alexaSupport\":";
 #ifdef ENABLE_ALEXA_SUPPORT
         json += "true";
 #else
         json += "false";
 #endif
-        json += "}";
-        json += ",{\"name\":\"mqttSupport\",\"label\":\"Device supports MQTT\",\"type\":\"Setting\",\"value\":";
+        json += ", \"mqttSupport\":";
 #ifdef ENABLE_MQTT_SUPPORT
         json += "true";
 #else
         json += "false";
 #endif
-        json += "}";
 #ifdef ENABLE_MQTT_SUPPORT
-        json += ",{\"name\":\"mqttSettings\",\"label\":\"MQTT Settings\",\"type\":\"Setting\",\"enabled\":";
-        json += cfg.MQTTEnabled;
-        json += ",\"hostname\":\"";
-        json += cfg.MQTTHost;
-        json += "\",\"port\":";
-        json += cfg.MQTTPort;
-        json += ",\"username\":\"";
-        json += cfg.MQTTUser;
-        json += "\",\"topic\":\"";
-        json += cfg.MQTTTopic;
-        json += "\",\"devicename\":\"";
-        json += cfg.MQTTDeviceName;
-        json += "\"}";
+        json += ",\"mqttEnabled\":" + String(cfg.MQTTEnabled);
+        json += ",\"mqttHostname\":\"" + String(cfg.MQTTHost) + "\"";
+        json += ",\"mqttPort\":\"" + String(cfg.MQTTPort) + "\"";
+        json += ",\"mqttUsername\":\"" + String(cfg.MQTTUser) + "\"";
+        json += ",\"mqttTopic\":\"" + String(cfg.MQTTTopic) + "\"";
+        json += ",\"mqttDevicename\":\"" + String(cfg.MQTTDeviceName) + "\"";
 #endif
-        json += "]";
-        webServer.send(200, "text/json", json);
+        json += "}}]";
+        webServer.send(200, "application/json", json);
         });
 
     webServer.on("/settings", HTTP_POST, []() {
@@ -1097,10 +1063,10 @@ void setup() {
         }
 #endif
         if (force_restart) {
-          saveConfig(true);
-          handleReboot();
+            saveConfig(true);
+            handleReboot();
         } else {
-          webServer.send(200, "text/html", "<html><head><meta http-equiv=\"refresh\" content=\"0; url=/settings.htm\"/></head><body></body>");
+            webServer.send(200, "text/html", "<html><head><meta http-equiv=\"refresh\" content=\"0; url=/settings.htm\"/></head><body></body>");
         }
         });
 
@@ -1108,18 +1074,7 @@ void setup() {
 
         // delete EEPROM settings
         if (webServer.arg("type") == String("all")) {
-            // delete EEPROM config
-            EEPROM.begin(4095);
-            for (int i = 0 ; i < sizeof(cfg) ; i++) {
-                EEPROM.write(i, 0);
-            }
-            delay(200);
-            EEPROM.commit();
-            EEPROM.end();
-
-            // set to default config
-            cfg = default_cfg;
-            saveConfig(true);
+            resetConfig();
         }
 
         // delete wireless config
@@ -1325,7 +1280,6 @@ void loop() {
 
     //  dnsServer.processNextRequest();
     //  webSocketsServer.loop();
-    wifiManager.process();
 #ifdef ENABLE_ALEXA_SUPPORT
     espalexa.loop();
 #else
@@ -1334,6 +1288,8 @@ void loop() {
 #ifdef ENABLE_MULTICAST_DNS
     MDNS.update();
 #endif // ENABLE_MULTICAST_DNS
+
+    wifiManager.process();
 
     static bool hasConnected = false;
     EVERY_N_SECONDS(1) {
@@ -1381,12 +1337,12 @@ void loop() {
                 Serial.println("Subscribing to MQTT Topics \n");
                 mqttClient.subscribe(MQTT_TOPIC MQTT_TOPIC_SET);
 
-                DynamicJsonDocument JSONencoder(2048);
+                DynamicJsonDocument JSONencoder(4096);
                     JSONencoder["~"] = cfg.MQTTTopic,
                     JSONencoder["name"] = cfg.MQTTDeviceName,
                     JSONencoder["dev"]["ids"] = MQTT_UNIQUE_IDENTIFIER,
                     JSONencoder["dev"]["mf"] = "Surrbradl08",
-                    JSONencoder["dev"]["mdl"] = "0.4",
+                    JSONencoder["dev"]["mdl"] = "0.4.4",
                     JSONencoder["dev"]["name"] = cfg.MQTTDeviceName,
                     JSONencoder["stat_t"] = "~",
                     JSONencoder["cmd_t"] = "~" MQTT_TOPIC_SET,
@@ -1470,17 +1426,6 @@ void loop() {
     // save config changes only every 10 seconds
     EVERY_N_SECONDS(10) {
         saveConfig(save_config);
-    }
-}
-
-void saveConfig(bool save) {
-    // Save configuration from RAM into EEPROM
-    if (save == true) {
-        EEPROM.begin(4095);
-        EEPROM.put(0, cfg );
-        delay(200);
-        EEPROM.commit();
-        EEPROM.end();
     }
 }
 
@@ -1653,9 +1598,10 @@ void setPattern(uint8_t value)
 
     currentPatternIndex = value;
 
-    if (autoplay != 1)
+    if (autoplay != 1) {
         cfg.currentPatternIndex = currentPatternIndex;
         save_config = true;
+    }
 
     broadcastInt("pattern", currentPatternIndex);
 }
@@ -1702,15 +1648,6 @@ void adjustBrightness(bool up)
         brightnessIndex--;
 
     setBrightness(brightnessMap[brightnessIndex]);
-/*    brightness = brightnessMap[brightnessIndex];
-
-    FastLED.setBrightness(brightness);
-
-    EEPROM.write(SETTING_BRIGTHNESS, brightness);
-    EEPROM.commit();
-
-    broadcastInt("brightness", brightness);
-*/
 }
 
 void setBrightness(uint8_t value)
@@ -1741,23 +1678,6 @@ void setSpeed(uint8_t value)
     save_config = true;
 
     broadcastInt("speed", speed);
-}
-
-void setHostname(String new_hostname)
-{
-    int j = 0;
-    for (int i = 0; i < new_hostname.length() && i < sizeof(cfg.hostname); i++) {
-        if (new_hostname.charAt(i) == '-' or \
-           (new_hostname.charAt(i) >= '0' && new_hostname.charAt(i) <= '9') or \
-           (new_hostname.charAt(i) >= 'A' && new_hostname.charAt(i) <= 'Z') or \
-           (new_hostname.charAt(i) >= 'a' && new_hostname.charAt(i) <= 'z')) {
-
-            cfg.hostname[j] = new_hostname.charAt(i);
-            j++;
-        }
-    }
-    cfg.hostname[j] = '\0';
-    save_config = true;
 }
 
 void strandTest()
